@@ -1,0 +1,8 @@
+1. configure strategy impl, shoe type, starting cash, bet amount via properties file or -D properties rather than hard-coding
+2. support for multiple players with separate configs and log files for each player
+3. allow for tweaking of basic strategy table
+4. log stats better (for CountingStrategy, need a better way to show how trueCount affects winnings)
+5. support for pluggable/configurable rules (blackjack payout multiplier, five card charlie, allow/disallow double after split, etc.)
+6. generation of visual summary of a run
+7. add graphical user interface
+
