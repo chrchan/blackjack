@@ -3,6 +3,19 @@ package cchan.blackjack;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.GnuParser;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Option;
+import org.apache.commons.cli.OptionBuilder;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
+import org.apache.commons.configuration.Configuration;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.lang.StringUtils;
+
 import cchan.blackjack.model.Action;
 import cchan.blackjack.model.Card;
 import cchan.blackjack.model.Hand;
@@ -14,31 +27,111 @@ import cchan.blackjack.strategy.impl.DealerStrategy;
 
 public class Sim {
 
-    private final static int STARTING_CASH = 1000;
+	// defaults
+
+    private int initialBet = 10;
+
+	private int numHands = 1000;
+
+    private int startingCash = 1000;
+
+    private Class playerStrategy = CountingStrategy.class;
+
+    private Class shoeType = FiniteShoe.class;
+
+    private int shoeDecks = 6;
 
     public static final void main(String[] argv) {
-        new Sim().runSim();
+    	Options options = new Options();
+    	options.addOption(OptionBuilder
+    			.withDescription("full path to file containing configuration properties")
+    			.hasArg()
+    			.isRequired()
+    			.create('p'));
+    	Configuration config = null;
+    	try {
+    	    config = parseCommandLine(options, argv);
+    	} catch (ParseException pe) {
+    		System.err.println(pe.getMessage());
+    		printUsage(options);
+    		System.exit(1);
+    	} catch (ConfigurationException ce) {
+    		System.err.println(ce.getMessage());
+    		printConfigurationInfo();
+    		System.exit(1);
+    	}
+        createSim(config).runSim();
+    }
+
+    private static Sim createSim(Configuration config) {
+    	Sim sim = new Sim();
+        sim.initialBet = config.getInt("initialBet", sim.initialBet);
+        sim.numHands = config.getInt("numHands", sim.numHands);
+        sim.startingCash = config.getInt("startingCash", sim.startingCash);
+        sim.shoeDecks = config.getInt("shoeDecks", sim.shoeDecks);
+        String playerStrategyValue = config.getString("playerStrategy");
+        try {
+			if (StringUtils.isNotBlank(playerStrategyValue)) {
+				sim.playerStrategy = Class.forName(String.format("cchan.blackjack.strategy.impl.%s", playerStrategyValue));
+			}
+			String shoeValue = config.getString("shoeType");
+			if (StringUtils.isNotBlank(shoeValue)) {
+				sim.shoeType = Class.forName(String.format("cchan.blackjack.shoe.impl.%s", shoeValue));
+			}
+		} catch (ClassNotFoundException cnfe) {
+			System.err.println(cnfe.getMessage());
+            System.exit(1);
+		}
+    	return sim;
+    }
+
+    private static Configuration parseCommandLine(Options options, String[] argv) throws ParseException, ConfigurationException {
+        CommandLineParser parser = new GnuParser();
+        CommandLine cmd = parser.parse(options, argv);
+        Option propertyOption = options.getOption("p");
+        if (propertyOption == null) {
+        	throw new ParseException("Configuration property file is required.");
+        }
+        return new PropertiesConfiguration(cmd.getOptionValue('p'));
+    }
+
+    private static void printUsage(Options options) {
+    	HelpFormatter helpFormatter = new HelpFormatter();
+    	helpFormatter.printHelp("mvn exec:java -Dexec.args=\"-p config.properties\"", options);
+    }
+
+    private static void printConfigurationInfo() {
+        // TODO
+    	System.out.println("configure blackjack simulator");
     }
 
     public void runSim() {
-        int numHands = 10000;
-        int initialBet = 10;
-        int lastBet = initialBet;
+        int lastBet = this.initialBet;
 
-        PlayerStats playerStats = new PlayerStats(STARTING_CASH);
+        PlayerStats playerStats = new PlayerStats(this.startingCash);
         PlayerStats dealerStats = new PlayerStats(0);
 
-        Shoe shoe = new FiniteShoe(6);
-        Strategy strategy = new CountingStrategy();
+        Shoe shoe = null;
+        Strategy strategy = null;
+        try {
+        	if (this.shoeType.equals(FiniteShoe.class)) {
+        		shoe = (Shoe) this.shoeType.getConstructor(new Class[] {Integer.TYPE}).newInstance(new Object[] {this.shoeDecks});
+        	} else {
+        		shoe = (Shoe) this.shoeType.newInstance();
+        	}
+        	strategy = (Strategy) this.playerStrategy.newInstance();
+        } catch (Exception e) {
+        }
+
         Strategy dealerStrategy = new DealerStrategy();
         shoe.registerStrategy(strategy);
         Action action = null;
         LinkedList<Hand> hands = null;
 
-        for(int i=0; i<numHands; i++) {
+        for(int i=0; i<this.numHands; i++) {
             shoe.shuffle();
 
-            int bet = strategy.getNextBet(shoe, initialBet, lastBet);
+            int bet = strategy.getNextBet(shoe, this.initialBet, lastBet);
             Hand playerHand = Hand.createPlayerHand(playerStats, shoe, bet);
             Hand dealerHand = Hand.createDealerHand(dealerStats, shoe);
             Card dealerShows = dealerHand.getCard(1);
@@ -87,7 +180,6 @@ public class Sim {
             }
             System.out.println(dealerHand);
             checkHands(hands, dealerHand);
-
             lastBet = playerHand.getBet();
         }
         System.out.println("============ FINAL STATS =============");
